@@ -1,0 +1,12 @@
+cmake_minimum_required(VERSION 3.28)
+project(Mx5MetricsService C)
+
+set(CMAKE_C_STANDARD 17)
+
+add_executable(Mx5MetricsService main.c
+        server.c
+        server.h
+        metrics.h
+        metrics.c
+        commands.c
+        commands.h)
