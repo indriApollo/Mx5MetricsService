@@ -64,7 +64,7 @@ static int setup_epoll(int signalfd_fd, int socket_fd) {
     signalfd_epoll_event.data.fd = signalfd_fd;
 
     if(epoll_ctl(fd, EPOLL_CTL_ADD, signalfd_fd, &signalfd_epoll_event) < 0) {
-        perror("epoll_ctl eventfd_fd");
+        perror("epoll_ctl signalfd_fd");
         exit(EXIT_FAILURE);
     }
 
