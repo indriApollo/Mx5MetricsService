@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include "stnobd.h"
 #include "server.h"
 #include "metrics.h"
 #include <stdlib.h>
@@ -7,7 +8,8 @@
 #include <signal.h>
 #include <sys/signalfd.h>
 
-#define SOCKET_NAME "/tmp/mx5metrics.sock"
+#define SERIAL_PORT_NAME   "/dev/pts/4"
+#define SOCKET_NAME        "/tmp/mx5metrics.sock"
 #define EPOLL_SINGLE_EVENT 1
 
 static int setup_signal_handler() {
@@ -52,44 +54,60 @@ static void handle_signal(int fd) {
     }
 }
 
-static int setup_epoll(int signalfd_fd, int socket_fd) {
+static void epoll_add_fd(int epfd, int fd) {
+    struct epoll_event event;
+    event.events = EPOLLIN;
+    event.data.fd = fd;
+
+    if(epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &event) < 0) {
+        perror("epoll_ctl");
+        exit(EXIT_FAILURE);
+    }
+}
+
+static int setup_epoll(int signalfd_fd, int stnobd_fd, int socket_fd) {
     int fd = epoll_create1(0);
     if (fd < 0) {
         perror("epoll_create1");
         exit(EXIT_FAILURE);
     }
 
-    struct epoll_event signalfd_epoll_event;
-    signalfd_epoll_event.events = EPOLLIN;
-    signalfd_epoll_event.data.fd = signalfd_fd;
-
-    if(epoll_ctl(fd, EPOLL_CTL_ADD, signalfd_fd, &signalfd_epoll_event) < 0) {
-        perror("epoll_ctl signalfd_fd");
-        exit(EXIT_FAILURE);
-    }
-
-    struct epoll_event socket_epoll_event;
-    socket_epoll_event.events = EPOLLIN;
-    socket_epoll_event.data.fd = socket_fd;
-
-    if(epoll_ctl(fd, EPOLL_CTL_ADD, socket_fd, &socket_epoll_event) < 0) {
-        perror("epoll_ctl socket_fd");
-        exit(EXIT_FAILURE);
-    }
+    epoll_add_fd(fd, signalfd_fd);
+    epoll_add_fd(fd, stnobd_fd);
+    epoll_add_fd(fd, socket_fd);
 
     return fd;
 }
 
 int main(void) {
+    struct metrics metrics;
+    struct stnobd_context stnobd_context;
+
     int signalfd_fd = setup_signal_handler();
 
-    struct metrics metrics;
-    metrics.rpm = 123;
+    printf("Setting up serial port %s\n", SERIAL_PORT_NAME);
+
+    char *cfg_cmds[] = {
+            STNOBD_CFG_DISABLE_ECHO,
+            STNOBD_CFG_ENABLE_HEADER,
+            STNOBD_CFG_DISABLE_SPACES,
+            STNOBD_CFG_FILTER(CAN_ID_HEX_STR_BRAKES),
+            STNOBD_CFG_FILTER(CAN_ID_HEX_STR_RPM_SPEED_ACCEL),
+            STNOBD_CFG_FILTER(CAN_ID_HEX_STR_COOLANT_THROTTLE_INTAKE),
+            STNOBD_CFG_FILTER(CAN_ID_HEX_STR_FUEL_LEVEL),
+            STNOBD_CFG_FILTER(CAN_ID_HEX_STR_WHEEL_SPEEDS)
+    };
+    int cfg_cmds_count = sizeof(cfg_cmds) / sizeof(cfg_cmds[0]);
+
+    int stnobd_fd = setup_stnobd(SERIAL_PORT_NAME, 115200, cfg_cmds, cfg_cmds_count, &stnobd_context);
+    if (stnobd_fd < 0) exit(EXIT_FAILURE);
+
+    send_stnobd_reset_cmd(&stnobd_context);
 
     int socket_fd = setup_server_socket(SOCKET_NAME);
     if (socket_fd < 0) exit(EXIT_FAILURE);
 
-    int epoll_fd = setup_epoll(signalfd_fd, socket_fd);
+    int epoll_fd = setup_epoll(signalfd_fd, stnobd_fd, socket_fd);
 
     struct epoll_event epoll_events[EPOLL_SINGLE_EVENT];
 
@@ -106,12 +124,15 @@ int main(void) {
             break;
         }
 
-        if (epoll_events[0].data.fd == signalfd_fd) {
-            handle_signal(signalfd_fd);
-            break;
+        if (epoll_events[0].data.fd == stnobd_fd) {
+            handle_incoming_stnobd_msg(&stnobd_context, &metrics);
         }
         else if (epoll_events[0].data.fd == socket_fd) {
             handle_incoming_server_msg(socket_fd, &metrics);
+        }
+        else if (epoll_events[0].data.fd == signalfd_fd) {
+            handle_signal(signalfd_fd);
+            break;
         }
         else {
             fprintf(stderr, "Unexpected epoll event fd %d\n", epoll_events[0].data.fd);
@@ -121,11 +142,10 @@ int main(void) {
 
     printf("Shutting down ....\n");
 
-    close(signalfd_fd);
-    close(socket_fd);
     close(epoll_fd);
-
-    unlink(SOCKET_NAME);
+    close(signalfd_fd);
+    close_stnobd(&stnobd_context);
+    close_server_socket(socket_fd, SOCKET_NAME);
 
     printf("Bye :)\n");
     return 0;

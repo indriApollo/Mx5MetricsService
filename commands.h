@@ -9,7 +9,7 @@
 #include <stddef.h>
 #include "metrics.h"
 
-#define CMD_ID_SIZE 1
+#define CMD_ID_SIZE      1
 #define CMD_RSP_MAX_SIZE 32
 
 enum command {

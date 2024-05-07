@@ -41,6 +41,11 @@ int setup_server_socket(const char *socket_name)
     return fd;
 }
 
+void close_server_socket(int fd, const char *socket_name) {
+    close(fd);
+    unlink(socket_name);
+}
+
 int handle_incoming_server_msg(int fd, const struct metrics *metrics)
 {
     uint8_t rec_buffer[REC_BUFFER_SIZE];
