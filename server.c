@@ -14,6 +14,8 @@
 #define REC_BUFFER_SIZE CMD_ID_SIZE
 #define RSP_BUFFER_SIZE CMD_RSP_MAX_SIZE
 
+static int configured = 0;
+
 int setup_server_socket(const char *socket_name)
 {
     int fd;
@@ -62,20 +64,27 @@ int handle_incoming_server_msg(int fd, const struct metrics *metrics)
         return -1;
     }
 
-    printf("Got %zd bytes from %s\n", rec_count, client_address.sun_path);
+    //printf("Got %zd bytes from %s\n", rec_count, client_address.sun_path);
 
     if (rec_count < REC_BUFFER_SIZE) {
         printf("Datagram too small");
         return 0;
     }
 
-    printf("cmd id %d %s\n", rec_buffer[0], command_str(rec_buffer[0]));
+    //printf("cmd id %d %s\n", rec_buffer[0], command_str(rec_buffer[0]));
 
     size_t rsp_len = handle_command(rec_buffer[0], metrics, rsp_buffer);
 
-    if (sendto(fd, rsp_buffer, rsp_len, 0,
-               (const struct sockaddr *) &client_address, client_len) < 0) {
-        perror("sendto");
+    if (!configured) {
+        if(connect(fd, (const struct sockaddr *) &client_address, client_len) < 0) {
+            perror("connect");
+            return -1;
+        }
+        configured = 1;
+    }
+
+    if (send(fd, rsp_buffer, rsp_len, 0) < 0) {
+        perror("send");
         return -1;
     }
 

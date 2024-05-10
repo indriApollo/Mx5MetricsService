@@ -7,9 +7,12 @@
 #include <unistd.h>
 #include <signal.h>
 #include <sys/signalfd.h>
+#include <sys/mman.h>
+#include <fcntl.h>
 
 #define SERIAL_PORT_NAME   "/dev/pts/4"
 #define SOCKET_NAME        "/tmp/mx5metrics.sock"
+#define SHM_NAME           "/mx5metrics"
 #define EPOLL_SINGLE_EVENT 1
 
 static int setup_signal_handler() {
@@ -80,8 +83,27 @@ static int setup_epoll(int signalfd_fd, int stnobd_fd, int socket_fd) {
 }
 
 int main(void) {
-    struct metrics metrics;
+    struct metrics *metrics;
     struct stnobd_context stnobd_context;
+
+    int shm_fd = shm_open(SHM_NAME, O_CREAT | O_EXCL | O_RDWR, 0755);
+    if (shm_fd < 0) {
+        perror("shm_open");
+        exit(EXIT_FAILURE);
+    }
+
+    if (ftruncate(shm_fd, sizeof(struct metrics)) < 0) {
+        perror("ftruncate");
+        exit(EXIT_FAILURE);
+    }
+
+    metrics = mmap(NULL, sizeof(struct metrics), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+    if (metrics == MAP_FAILED) {
+        perror("mmap");
+        exit(EXIT_FAILURE);
+    }
+
+    close(shm_fd);
 
     int signalfd_fd = setup_signal_handler();
 
@@ -125,10 +147,10 @@ int main(void) {
         }
 
         if (epoll_events[0].data.fd == stnobd_fd) {
-            handle_incoming_stnobd_msg(&stnobd_context, &metrics);
+            handle_incoming_stnobd_msg(&stnobd_context, metrics);
         }
         else if (epoll_events[0].data.fd == socket_fd) {
-            handle_incoming_server_msg(socket_fd, &metrics);
+            handle_incoming_server_msg(socket_fd, metrics);
         }
         else if (epoll_events[0].data.fd == signalfd_fd) {
             handle_signal(signalfd_fd);
@@ -146,6 +168,7 @@ int main(void) {
     close(signalfd_fd);
     close_stnobd(&stnobd_context);
     close_server_socket(socket_fd, SOCKET_NAME);
+    shm_unlink(SHM_NAME);
 
     printf("Bye :)\n");
     return 0;

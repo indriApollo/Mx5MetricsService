@@ -64,7 +64,7 @@ static int handle_brakes(uint64_t can_data, struct metrics *metrics) {
     // Limit to min 0
     metrics->brakes_pct = brake_pressure < 0 ? 0 : (uint8_t)((float)brake_pressure * BRAKE_PRESSURE_COEF);
 
-    printf("brakes %d %%\n", metrics->brakes_pct);
+    //printf("brakes %d %%\n", metrics->brakes_pct);
 
     return 0;
 }
@@ -79,8 +79,8 @@ static int handle_rpm_speed_accel(uint64_t can_data, struct metrics *metrics) {
     uint8_t accel = (uint8_t)((can_data & ACCEL_MASK) >> ACCEL_BIT_SHIFT);
     metrics->accelerator_pedal_position_pct = accel * ACCEL_COEF;
 
-    printf("rpm %d, speed %d kmh, accel %d %%\n",
-           metrics->rpm, metrics->speed_kmh, metrics->accelerator_pedal_position_pct);
+    //printf("rpm %d, speed %d kmh, accel %d %%\n",
+      //     metrics->rpm, metrics->speed_kmh, metrics->accelerator_pedal_position_pct);
 
     return 0;
 }
@@ -98,9 +98,9 @@ static int handle_load_coolant_throttle_intake(uint64_t can_data, struct metrics
     int16_t intake_temp = (int16_t)((can_data & INTAKE_MASK) >> INTAKE_BIT_SHIFT);
     metrics->intake_air_temp_c = raw_to_temp(intake_temp);
 
-    printf("engine %d %%, coolant %d °C, throttle %d %%, intake %d °C\n",
-           metrics->calculated_engine_load_pct, metrics->engine_coolant_temp_c,
-           metrics->throttle_valve_position_pct, metrics->intake_air_temp_c);
+    //printf("engine %d %%, coolant %d °C, throttle %d %%, intake %d °C\n",
+      //     metrics->calculated_engine_load_pct, metrics->engine_coolant_temp_c,
+        //   metrics->throttle_valve_position_pct, metrics->intake_air_temp_c);
 
     return 0;
 }
@@ -109,7 +109,7 @@ static int handle_fuel_level(uint64_t can_data, struct metrics *metrics) {
     uint8_t fuel_level = (uint8_t)(can_data & FUEL_LEVEL_MASK);
     metrics->fuel_level_pct = raw_to_pct(fuel_level);
 
-    printf("fuel %d %%\n", metrics->fuel_level_pct);
+    //printf("fuel %d %%\n", metrics->fuel_level_pct);
 
     return 0;
 }
@@ -127,7 +127,7 @@ static int handle_wheel_speeds(uint64_t can_data, struct metrics *metrics) {
     uint16_t rr = (uint16_t)((can_data & RR_SPEED_MASK) >> RR_SPEED_BIT_SHIFT);
     metrics->rr_speed_kmh = raw_speed_to_kmh(rr);
 
-    printf("fl %d fr %d rl %d rr %d kmh\n", fr, fr, rl, rr);
+    //printf("fl %d fr %d rl %d rr %d kmh\n", fr, fr, rl, rr);
 
     return 0;
 }
