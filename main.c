@@ -15,6 +15,29 @@
 #define SHM_NAME           "/mx5metrics"
 #define EPOLL_SINGLE_EVENT 1
 
+static struct metrics* setup_shm() {
+    int fd = shm_open(SHM_NAME, O_CREAT | O_RDWR, 0755);
+    if (fd < 0) {
+        perror("shm_open");
+        exit(EXIT_FAILURE);
+    }
+
+    if (ftruncate(fd, sizeof(struct metrics)) < 0) {
+        perror("ftruncate");
+        exit(EXIT_FAILURE);
+    }
+
+    struct metrics *metrics = mmap(NULL, sizeof(struct metrics), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (metrics == MAP_FAILED) {
+        perror("mmap");
+        exit(EXIT_FAILURE);
+    }
+
+    close(fd);
+
+    return metrics;
+}
+
 static int setup_signal_handler() {
     int fd;
     sigset_t mask;
@@ -83,27 +106,9 @@ static int setup_epoll(int signalfd_fd, int stnobd_fd, int socket_fd) {
 }
 
 int main(void) {
-    struct metrics *metrics;
     struct stnobd_context stnobd_context;
 
-    int shm_fd = shm_open(SHM_NAME, O_CREAT | O_EXCL | O_RDWR, 0755);
-    if (shm_fd < 0) {
-        perror("shm_open");
-        exit(EXIT_FAILURE);
-    }
-
-    if (ftruncate(shm_fd, sizeof(struct metrics)) < 0) {
-        perror("ftruncate");
-        exit(EXIT_FAILURE);
-    }
-
-    metrics = mmap(NULL, sizeof(struct metrics), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
-    if (metrics == MAP_FAILED) {
-        perror("mmap");
-        exit(EXIT_FAILURE);
-    }
-
-    close(shm_fd);
+    struct metrics *metrics = setup_shm();
 
     int signalfd_fd = setup_signal_handler();
 
@@ -133,7 +138,7 @@ int main(void) {
 
     struct epoll_event epoll_events[EPOLL_SINGLE_EVENT];
 
-    printf("Ready at %s\n", SOCKET_NAME);
+    printf("Ready at %s, /dev/shm%s\n", SOCKET_NAME, SHM_NAME);
 
     while(1) {
         if (epoll_wait(epoll_fd, epoll_events, EPOLL_SINGLE_EVENT, -1) != EPOLL_SINGLE_EVENT) {

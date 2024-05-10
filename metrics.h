@@ -18,7 +18,7 @@
 
 #include <stdint.h>
 
-struct metrics {
+struct __attribute__((__packed__)) metrics {
      uint16_t rpm;
      uint16_t speed_kmh;
      uint8_t accelerator_pedal_position_pct;

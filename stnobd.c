@@ -10,6 +10,7 @@
 #include <assert.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <time.h>
 
 #define WAIT_FOR_FIRST_BYTE 1
 #define INTER_BYTE_TIMEOUT  1
@@ -17,6 +18,11 @@
 #define CAN_ID_STR_LEN      3
 #define CAN_DATA_STR_LEN    16
 #define MONITORING_RSP_LEN  (CAN_ID_STR_LEN + CAN_DATA_STR_LEN + 1 /* \r */)
+
+static void msleep(int milliseconds) {
+    const struct timespec ts = { .tv_nsec = milliseconds * 1000000, .tv_sec = 0 };
+    nanosleep(&ts, NULL);
+}
 
 static int send_cfg_cmd(struct stnobd_context *ctx) {
     assert(ctx->current_cfg_cmd < ctx->cfg_cmds_count);
@@ -119,7 +125,7 @@ static int handle_monitoring_rsp(struct stnobd_context *ctx, struct metrics *met
 static int handle_cfg_rsp(struct stnobd_context *ctx) {
     char buf[CFG_ACK_LEN + 1 /* null terminator */] = {0};
 
-    sleep(1); // Wait for full response (> prompt char can lag behind initial ack chars)
+    msleep(100); // Wait for full response (> prompt char can lag behind initial ack chars)
     ssize_t c = read(ctx->fd, buf, CFG_ACK_LEN);
     if (c < 0) {
         perror("read handle_cfg_rsp");
@@ -153,7 +159,7 @@ static int handle_reset_rsp(struct stnobd_context *ctx) {
     const int startup_msg_len = strlen(startup_msg);
     char buf[32] = {0};
 
-    sleep(1); // Wait for full response (> prompt char can lag behind initial startup msg chars)
+    msleep(100); // Wait for full response (> prompt char can lag behind initial startup msg chars)
     // Read a bunch of bytes in the hope of finding the STN startup msg
     ssize_t c = read(ctx->fd, buf, sizeof(buf) - 1 /* null terminator */);
     if (c < 0) {

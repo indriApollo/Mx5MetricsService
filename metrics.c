@@ -2,34 +2,44 @@
 // Created by rleroux on 4/28/24.
 //
 
-#define BRAKE_PRESSURE_MASK             0xffff // 0-1
+#define LOG
 
-#define RPM_MASK                        0xffff // 0-1
-#define SPEED_MASK              0xffff00000000 // 4-5
-#define ACCEL_MASK            0xff000000000000 // 6
+// /!\ data endianness swapped (strtoull), byte indexes inverted
 
-#define ENGINE_LOAD_MASK                  0xff // 0
-#define COOLANT_MASK                    0xff00 // 1
-#define THROTTLE_MASK               0xff000000 // 3
-#define INTAKE_MASK               0xff00000000 // 4
+#define BRAKE_PRESSURE_MASK 0xffff000000000000 // 6-7
 
-#define FUEL_LEVEL_MASK                   0xff // 0
+#define RPM_MASK            0xffff000000000000 // 6-7
+#define SPEED_MASK                  0xffff0000 // 2-3
+#define ACCEL_MASK                      0xff00 // 1
 
-#define FL_SPEED_MASK                   0xffff // 0-1
-#define FR_SPEED_MASK               0xffff0000 // 2-3
-#define RL_SPEED_MASK           0xffff00000000 // 4-5
-#define RR_SPEED_MASK       0xffff000000000000 // 6-7
+#define ENGINE_LOAD_MASK    0xff00000000000000 // 7
+#define COOLANT_MASK          0xff000000000000 // 6
+#define THROTTLE_MASK             0xff00000000 // 4
+#define INTAKE_MASK                 0xff000000 // 3
 
-#define SPEED_BIT_SHIFT    (4 * 8)
-#define ACCEL_BIT_SHIFT    (6 * 8)
+#define FUEL_LEVEL_MASK     0xff00000000000000 // 7
 
-#define COOLANT_BIT_SHIFT  (1 * 8)
-#define THROTTLE_BIT_SHIFT (3 * 8)
-#define INTAKE_BIT_SHIFT   (4 * 8)
+#define FL_SPEED_MASK       0xffff000000000000 // 6-7
+#define FR_SPEED_MASK           0xffff00000000 // 4-5
+#define RL_SPEED_MASK               0xffff0000 // 2-3
+#define RR_SPEED_MASK                   0xffff // 0-1
 
-#define FR_SPEED_BIT_SHIFT (2 * 8)
-#define RL_SPEED_BIT_SHIFT (4 * 8)
-#define RR_SPEED_BIT_SHIFT (6 * 8)
+#define BRAKE_PRESSURE_BIT_SHIFT (6 * 8)
+
+#define RPM_BIT_SHIFT            (6 * 8)
+#define SPEED_BIT_SHIFT          (2 * 8)
+#define ACCEL_BIT_SHIFT          (1 * 8)
+
+#define ENGINE_LOAD_BIT_SHIFT    (7 * 8)
+#define COOLANT_BIT_SHIFT        (6 * 8)
+#define THROTTLE_BIT_SHIFT       (4 * 8)
+#define INTAKE_BIT_SHIFT         (3 * 8)
+
+#define FUEL_LEVEL_BIT_SHIFT     (7 * 8)
+
+#define FL_SPEED_BIT_SHIFT       (6 * 8)
+#define FR_SPEED_BIT_SHIFT       (4 * 8)
+#define RL_SPEED_BIT_SHIFT       (2 * 8)
 
 #define BRAKE_PRESSURE_OFFSET 102
 #define BRAKE_PRESSURE_COEF   0.2f
@@ -40,8 +50,28 @@
 #define PCT_DIV               2.55f
 #define TEMP_OFFSET           40
 
+#define FUEL_LEVEL_SAMPLES_COUNT 10
+
 #include "metrics.h"
 #include <stdio.h>
+#include <assert.h>
+
+static uint8_t fuel_level_samples[FUEL_LEVEL_SAMPLES_COUNT] = {0};
+static uint16_t fuel_level_samples_sum = 0;
+static uint8_t fuel_levels_samples_pos = 0;
+
+uint8_t fuel_moving_avg(uint8_t new_sample)
+{
+    assert(fuel_levels_samples_pos < FUEL_LEVEL_SAMPLES_COUNT);
+
+    fuel_level_samples_sum = fuel_level_samples_sum - fuel_level_samples[fuel_levels_samples_pos] + new_sample;
+    fuel_level_samples[fuel_levels_samples_pos] = new_sample;
+
+    if (++fuel_levels_samples_pos >= FUEL_LEVEL_SAMPLES_COUNT)
+        fuel_levels_samples_pos = 0;
+
+    return fuel_level_samples_sum / FUEL_LEVEL_SAMPLES_COUNT;
+}
 
 static uint16_t raw_speed_to_kmh(uint16_t raw_speed) {
     int16_t speed = (int16_t)(((float)raw_speed / SPEED_DIV) - SPEED_OFFSET);
@@ -57,20 +87,22 @@ static int16_t raw_to_temp(int16_t raw) {
 }
 
 static int handle_brakes(uint64_t can_data, struct metrics *metrics) {
-    int16_t brake_pressure = (int16_t)(can_data & BRAKE_PRESSURE_MASK);
+    int16_t brake_pressure = (int16_t)((can_data & BRAKE_PRESSURE_MASK) >> BRAKE_PRESSURE_BIT_SHIFT);
     brake_pressure -= BRAKE_PRESSURE_OFFSET;
 
     // Pressure can be momentarily negative (vacuum ?)
     // Limit to min 0
     metrics->brakes_pct = brake_pressure < 0 ? 0 : (uint8_t)((float)brake_pressure * BRAKE_PRESSURE_COEF);
 
-    //printf("brakes %d %%\n", metrics->brakes_pct);
+#ifdef LOG
+    printf("brakes %d %%\n", metrics->brakes_pct);
+#endif
 
     return 0;
 }
 
 static int handle_rpm_speed_accel(uint64_t can_data, struct metrics *metrics) {
-    uint16_t rpm = (uint16_t)(can_data & RPM_MASK);
+    uint16_t rpm = (uint16_t)((can_data & RPM_MASK) >> RPM_BIT_SHIFT);
     metrics->rpm = rpm / RPM_DIV;
 
     uint16_t speed = (uint16_t)((can_data & SPEED_MASK) >> SPEED_BIT_SHIFT);
@@ -79,14 +111,16 @@ static int handle_rpm_speed_accel(uint64_t can_data, struct metrics *metrics) {
     uint8_t accel = (uint8_t)((can_data & ACCEL_MASK) >> ACCEL_BIT_SHIFT);
     metrics->accelerator_pedal_position_pct = accel * ACCEL_COEF;
 
-    //printf("rpm %d, speed %d kmh, accel %d %%\n",
-      //     metrics->rpm, metrics->speed_kmh, metrics->accelerator_pedal_position_pct);
+#ifdef LOG
+    printf("rpm %d, speed %d kmh, accel %d %%\n",
+           metrics->rpm, metrics->speed_kmh, metrics->accelerator_pedal_position_pct);
+#endif
 
     return 0;
 }
 
 static int handle_load_coolant_throttle_intake(uint64_t can_data, struct metrics *metrics) {
-    uint8_t engine_load = (uint8_t)(can_data & ENGINE_LOAD_MASK);
+    uint8_t engine_load = (uint8_t)((can_data & ENGINE_LOAD_MASK) >> ENGINE_LOAD_BIT_SHIFT);
     metrics->calculated_engine_load_pct = raw_to_pct(engine_load);
 
     int16_t coolant_temp = (int16_t)((can_data & COOLANT_MASK) >> COOLANT_BIT_SHIFT);
@@ -98,36 +132,43 @@ static int handle_load_coolant_throttle_intake(uint64_t can_data, struct metrics
     int16_t intake_temp = (int16_t)((can_data & INTAKE_MASK) >> INTAKE_BIT_SHIFT);
     metrics->intake_air_temp_c = raw_to_temp(intake_temp);
 
-    //printf("engine %d %%, coolant %d °C, throttle %d %%, intake %d °C\n",
-      //     metrics->calculated_engine_load_pct, metrics->engine_coolant_temp_c,
-        //   metrics->throttle_valve_position_pct, metrics->intake_air_temp_c);
+#ifdef LOG
+    printf("engine %d %%, coolant %d °C, throttle %d %%, intake %d °C\n",
+           metrics->calculated_engine_load_pct, metrics->engine_coolant_temp_c,
+           metrics->throttle_valve_position_pct, metrics->intake_air_temp_c);
+#endif
 
     return 0;
 }
 
 static int handle_fuel_level(uint64_t can_data, struct metrics *metrics) {
-    uint8_t fuel_level = (uint8_t)(can_data & FUEL_LEVEL_MASK);
-    metrics->fuel_level_pct = raw_to_pct(fuel_level);
+    uint8_t fuel_level = (uint8_t)((can_data & FUEL_LEVEL_MASK) >> FUEL_LEVEL_BIT_SHIFT);
+    metrics->fuel_level_pct = raw_to_pct(fuel_moving_avg(fuel_level));
 
-    //printf("fuel %d %%\n", metrics->fuel_level_pct);
+#ifdef LOG
+    printf("fuel avg %d sample %d, %%\n", metrics->fuel_level_pct, raw_to_pct(fuel_level));
+#endif
 
     return 0;
 }
 
 static int handle_wheel_speeds(uint64_t can_data, struct metrics *metrics) {
-    uint16_t fl = (uint16_t)(can_data & FL_SPEED_MASK);
-    metrics->fl_speed_kmh = raw_speed_to_kmh(fl);
+    uint16_t fl = (uint16_t)((can_data & FL_SPEED_MASK) >> FL_SPEED_BIT_SHIFT);
+    metrics->fl_speed_kmh = raw_speed_to_kmh((fl));
 
     uint16_t fr = (uint16_t)((can_data & FR_SPEED_MASK) >> FR_SPEED_BIT_SHIFT);
-    metrics->fr_speed_kmh = raw_speed_to_kmh(fr);
+    metrics->fr_speed_kmh = raw_speed_to_kmh((fr));
 
     uint16_t rl = (uint16_t)((can_data & RL_SPEED_MASK) >> RL_SPEED_BIT_SHIFT);
-    metrics->rl_speed_kmh = raw_speed_to_kmh(rl);
+    metrics->rl_speed_kmh = raw_speed_to_kmh((rl));
 
-    uint16_t rr = (uint16_t)((can_data & RR_SPEED_MASK) >> RR_SPEED_BIT_SHIFT);
-    metrics->rr_speed_kmh = raw_speed_to_kmh(rr);
+    uint16_t rr = (uint16_t)(can_data & RR_SPEED_MASK);
+    metrics->rr_speed_kmh = raw_speed_to_kmh((rr));
 
-    //printf("fl %d fr %d rl %d rr %d kmh\n", fr, fr, rl, rr);
+#ifdef LOG
+    printf("fl %d fr %d rl %d rr %d kmh\n",
+           metrics->fl_speed_kmh, metrics->fr_speed_kmh, metrics->rl_speed_kmh, metrics->rr_speed_kmh);
+#endif
 
     return 0;
 }
