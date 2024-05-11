@@ -11,5 +11,6 @@ add_executable(Mx5MetricsService main.c
         commands.c
         commands.h
         serial_port.c
+        serial_port.h
         stnobd.c
         stnobd.h)

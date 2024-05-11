@@ -10,7 +10,8 @@
 #include <sys/mman.h>
 #include <fcntl.h>
 
-#define SERIAL_PORT_NAME   "/dev/pts/4"
+#define SERIAL_PORT_NAME   "/dev/pts/3"
+#define SERIAL_BAUD_RATE    921600
 #define SOCKET_NAME        "/tmp/mx5metrics.sock"
 #define SHM_NAME           "/mx5metrics"
 #define EPOLL_SINGLE_EVENT 1
@@ -126,7 +127,7 @@ int main(void) {
     };
     int cfg_cmds_count = sizeof(cfg_cmds) / sizeof(cfg_cmds[0]);
 
-    int stnobd_fd = setup_stnobd(SERIAL_PORT_NAME, 115200, cfg_cmds, cfg_cmds_count, &stnobd_context);
+    int stnobd_fd = setup_stnobd(SERIAL_PORT_NAME, SERIAL_BAUD_RATE, cfg_cmds, cfg_cmds_count, &stnobd_context);
     if (stnobd_fd < 0) exit(EXIT_FAILURE);
 
     send_stnobd_reset_cmd(&stnobd_context);

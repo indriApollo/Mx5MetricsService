@@ -11,9 +11,14 @@
 
 #define STNOBD_CFG_FILTER(hex_str_id) "STFPA" hex_str_id ",FFF\r"
 
+#define CAN_ID_STR_LEN      3
+#define CAN_DATA_STR_LEN    16
+#define MONITORING_RSP_LEN  (CAN_ID_STR_LEN + CAN_DATA_STR_LEN + 1 /* \r */)
+
 #include "metrics.h"
 #include <termios.h>
 #include <stdbool.h>
+#include <unistd.h>
 
 struct stnobd_context {
     int fd;
@@ -23,6 +28,8 @@ struct stnobd_context {
     char **cfg_cmds;
     int cfg_cmds_count;
     int current_cfg_cmd;
+    char mon_rsp_buf[MONITORING_RSP_LEN];
+    ssize_t mon_rsp_pos;
 };
 
 int setup_stnobd(const char *port_name, speed_t baud_rate,

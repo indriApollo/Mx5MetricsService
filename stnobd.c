@@ -4,7 +4,6 @@
 
 #include "stnobd.h"
 #include "serial_port.h"
-#include <unistd.h>
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
@@ -15,9 +14,6 @@
 #define WAIT_FOR_FIRST_BYTE 1
 #define INTER_BYTE_TIMEOUT  1
 #define CFG_ACK_LEN         4 // >OK\r
-#define CAN_ID_STR_LEN      3
-#define CAN_DATA_STR_LEN    16
-#define MONITORING_RSP_LEN  (CAN_ID_STR_LEN + CAN_DATA_STR_LEN + 1 /* \r */)
 
 static void msleep(int milliseconds) {
     const struct timespec ts = { .tv_nsec = milliseconds * 1000000, .tv_sec = 0 };
@@ -90,33 +86,60 @@ static int stop_monitoring_mode(struct stnobd_context *ctx) {
 static int handle_monitoring_rsp(struct stnobd_context *ctx, struct metrics *metrics) {
     uint16_t can_id;
     uint64_t can_data;
-    char buf[MONITORING_RSP_LEN];
 
-    ssize_t c = read(ctx->fd, buf, MONITORING_RSP_LEN);
+    if (ctx->mon_rsp_pos >= MONITORING_RSP_LEN) {
+        ctx->mon_rsp_pos = 0;
+    }
+
+    int n = MONITORING_RSP_LEN - ctx->mon_rsp_pos;
+
+    ssize_t c = read(ctx->fd, ctx->mon_rsp_buf + ctx->mon_rsp_pos, n);
     if (c < 0) {
         perror("read handle_monitoring_rsp");
         return -1;
     }
 
-    //printf("got monitoring msg %zd, '%.*s'\n", c, (int)(c - 1), buf);
+    //printf("got rsp %zd, '%.*s'\n", c, (int)(c - 1), ctx->mon_rsp_buf + ctx->mon_rsp_pos);
 
-    // TODO
-    if (c != MONITORING_RSP_LEN) {
-        printf("partial monitoring msg (got %zd expected %d)\n", c, MONITORING_RSP_LEN);
-        return -1;
+    // Remember our current progress
+    ctx->mon_rsp_pos += c;
+
+    if (c != n) {
+        printf("partial rsp (got %zd expected %d)\n", c, n);
+        // No worries, try to get the rest with the next read
+        return 1;
     }
-    // TODO
-    if (buf[MONITORING_RSP_LEN - 1] != '\r') {
+
+    assert(ctx->mon_rsp_pos == MONITORING_RSP_LEN);
+
+    int rsp_last_index = MONITORING_RSP_LEN - 1;
+
+    // Handle misaligned reads
+    if (ctx->mon_rsp_buf[rsp_last_index] != '\r') {
         printf("expected monitoring msg to end with \\r\n");
-        return -1;
+
+        char *cr = strchr(ctx->mon_rsp_buf, '\r');
+        if (cr == NULL)
+            // We couldn't find \r, let the next read happen normally in the hopes to finally get it
+            return 1;
+
+        int cr_index = (int)(cr - ctx->mon_rsp_buf);
+        int after_cr_len = rsp_last_index - cr_index;
+
+        // Move everything after \r to the start of the buffer
+        // and advance pos
+        memmove(ctx->mon_rsp_buf, cr + 1, after_cr_len);
+        ctx->mon_rsp_pos = after_cr_len;
+
+        return 1;
     }
 
     char can_id_str[CAN_ID_STR_LEN + 1 /* null terminator */] = {0};
-    memcpy(can_id_str, buf, CAN_ID_STR_LEN);
+    memcpy(can_id_str, ctx->mon_rsp_buf, CAN_ID_STR_LEN);
     can_id = strtoul(can_id_str, NULL, 16);
 
     char can_data_str[CAN_DATA_STR_LEN + 1 /* null terminator */] = {0};
-    memcpy(can_data_str, buf + CAN_ID_STR_LEN, CAN_DATA_STR_LEN);
+    memcpy(can_data_str, ctx->mon_rsp_buf + CAN_ID_STR_LEN, CAN_DATA_STR_LEN);
     can_data = strtoull(can_data_str, NULL, 16);
 
     return handle_can_msg(can_id, can_data, metrics);
