@@ -46,7 +46,7 @@
 #define RPM_DIV               4
 #define SPEED_DIV             100.0f
 #define SPEED_OFFSET          100
-#define ACCEL_COEF            2
+#define ACCEL_DIV             2
 #define PCT_DIV               2.55f
 #define TEMP_OFFSET           40
 
@@ -109,7 +109,7 @@ static int handle_rpm_speed_accel(uint64_t can_data, struct metrics *metrics) {
     metrics->speed_kmh = raw_speed_to_kmh(speed);
 
     uint8_t accel = (uint8_t)((can_data & ACCEL_MASK) >> ACCEL_BIT_SHIFT);
-    metrics->accelerator_pedal_position_pct = accel * ACCEL_COEF;
+    metrics->accelerator_pedal_position_pct = accel / ACCEL_DIV;
 
 #ifdef LOG
     printf("rpm %d, speed %d kmh, accel %d %%\n",
